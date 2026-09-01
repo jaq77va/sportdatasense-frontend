@@ -2,7 +2,7 @@
 // SPORTDATASENSE WORKSTATION - FRONTEND LOGIC
 // ==========================================
 
-// Configura l'URL del backend Render (assicurati corrisponda all'indirizzo del tuo server)
+// Configura l'URL del backend Render
 const BACKEND_URL = "https://sportdatasense-backend.onrender.com";
 
 // Stato globale dell'applicazione
@@ -13,7 +13,7 @@ const appState = {
     telemetryData: null
 };
 
-// Riferimenti DOM principali
+// Riferimenti DOM principali (ID allineati correttamente con l'HTML)
 const videoDropzone = document.getElementById('video-dropzone');
 const videoInput = document.getElementById('video-input');
 const videoContainer = document.getElementById('video-container');
@@ -21,23 +21,23 @@ const mainVideo = document.getElementById('main-video');
 const videoTools = document.getElementById('video-tools');
 const drawingCanvas = document.getElementById('drawing-canvas');
 const ctx = drawingCanvas ? drawingCanvas.getContext('2d') : null;
-const sessionNameSpan = document.getElementById('session-name');
+const sessionNameSpan = document.getElementById('current-session-name');
 
 // --- 1. GESTIONE CARICAMENTO VIDEO ---
 videoDropzone.addEventListener('click', () => videoInput.click());
 
 videoDropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
-    videoDropzone.style.borderColor = 'var(--accent)';
+    videoDropzone.style.borderColor = '#38bdf8';
 });
 
 videoDropzone.addEventListener('dragleave', () => {
-    videoDropzone.style.borderColor = 'var(--border-color)';
+    videoDropzone.style.borderColor = '#475569';
 });
 
 videoDropzone.addEventListener('drop', (e) => {
     e.preventDefault();
-    videoDropzone.style.borderColor = 'var(--border-color)';
+    videoDropzone.style.borderColor = '#475569';
     if (e.dataTransfer.files.length > 0) {
         handleVideoFile(e.dataTransfer.files[0]);
     }
@@ -53,7 +53,9 @@ function handleVideoFile(file) {
     console.log("[Video] Caricamento file:", file.name);
     const videoUrl = URL.createObjectURL(file);
     mainVideo.src = videoUrl;
-    sessionNameSpan.textContent = file.name;
+    if (sessionNameSpan) {
+        sessionNameSpan.textContent = file.name;
+    }
     
     videoDropzone.style.display = 'none';
     videoContainer.style.display = 'flex';
@@ -106,7 +108,7 @@ if (drawingCanvas) {
         
         if (appState.currentTool === 'marker') {
             drawMarker(x, y);
-            appState.clickPoints = []; // Reset dopo il marker singolo
+            appState.clickPoints = [];
         } else if (appState.currentTool === 'line' && appState.clickPoints.length === 2) {
             drawLine(appState.clickPoints[0], appState.clickPoints[1]);
             appState.clickPoints = [];
@@ -130,12 +132,25 @@ function drawLine(p1, p2) {
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
-    ctx.strokeStyle = '#3b82f6';
+    ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 4;
     ctx.stroke();
 }
 
 // --- 3. COMUNICAZIONE CON IL BACKEND PYTHON (FASTAPI) ---
+const telemetryInput = document.getElementById('telemetry-input');
+const btnUploadTelemetry = document.getElementById('btn-upload-telemetry');
+
+if (btnUploadTelemetry && telemetryInput) {
+    btnUploadTelemetry.addEventListener('click', () => telemetryInput.click());
+    
+    telemetryInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            await uploadTelemetryFile(e.target.files[0]);
+        }
+    });
+}
+
 async function uploadTelemetryFile(file) {
     const formData = new FormData();
     formData.append("file", file);
@@ -154,6 +169,7 @@ async function uploadTelemetryFile(file) {
         const result = await response.json();
         appState.telemetryData = result;
         console.log("[API] Dati telemetrici ricevuti:", result);
+        alert("File telemetrico elaborato con successo dal backend!");
         return result;
     } catch (error) {
         console.error("[API Error] Impossibile elaborare il file sul server:", error);
