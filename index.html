@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SportDataSense - Biomechanical & Telemetry Workstation</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js per i grafici telemetrici interattivi -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <!-- BARRA SUPERIORE -->
+    <header class="top-nav">
+        <div class="logo">SportDataSense <span>[Workstation]</span></div>
+        <div class="session-info">Sessione: <span id="current-session-name">Nessun file caricato</span></div>
+        <div class="actions">
+            <button id="btn-reset" class="btn-danger" title="Azzera stato in-memory">↺ Reset Completo</button>
+        </div>
+    </header>
+
+    <!-- DASHBOARD PRINCIPALE -->
+    <main class="dashboard-grid">
+        
+        <!-- MODULO 1: VIDEO & TRACKER -->
+        <section class="panel">
+            <h2>1. Modulo Video & Tracker</h2>
+            <div class="dropzone" id="video-dropzone">
+                <p>Trascina qui il video (.mp4, .mov, .avi) o clicca</p>
+                <input type="file" id="video-input" accept="video/mp4,video/quicktime,video/avi" hidden>
+            </div>
+            <div class="video-container" id="video-container" style="display:none;">
+                <canvas id="drawing-canvas"></canvas>
+                <video id="main-video" controls></video>
+            </div>
+            <div class="video-tools" id="video-tools" style="display:none;">
+                <div class="tool-group">
+                    <span id="label-tool-select">Strumento:</span>
+                    <button class="tool-btn active" data-tool="line" aria-labelledby="label-tool-select">Linea</button>
+                    <button class="tool-btn" data-tool="circle" aria-labelledby="label-tool-select">Cerchio</button>
+                    <button class="tool-btn" data-tool="marker" aria-labelledby="label-tool-select">Marker</button>
+                    <button class="tool-btn" data-tool="angle" aria-labelledby="label-tool-select">Angolo / Arco</button>
+                    <button class="tool-btn btn-clear" id="btn-clear-canvas">Pulisci Disegni</button>
+                </div>
+                <div class="control-row">
+                    <span>Frame: <span id="frame-counter">0 / 0</span></span>
+                    <button id="btn-prev-frame">◀ -1F</button>
+                    <button id="btn-next-frame">+1F ▶</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- MODULO 2 & 3: GRAFICI ATTIVI & LIBRERIA -->
+        <section class="panel-column">
+            <div class="panel" id="panel-active-charts">
+                <h2>2. Grafici Telemetrici Attivi</h2>
+                <div class="charts-wrapper" id="charts-container">
+                    <p class="placeholder-text">Carica un file telemetrico (.fit, .gpx, .tcx)</p>
+                </div>
+            </div>
+            <div class="panel" id="panel-library">
+                <h2>3. Libreria Grafici Selezionabili</h2>
+                <div class="library-grid" id="library-metrics-list">
+                    <span class="lib-item disabled" data-metric="power">[+] Profilo Potenza (Watt)</span>
+                    <span class="lib-item disabled" data-metric="heart_rate">[+] Frequenza Cardiaca (HR)</span>
+                    <span class="lib-item disabled" data-metric="cadence">[+] Cadenza / RPM</span>
+                    <span class="lib-item disabled" data-metric="altitude">[+] Profilo Altimetrico</span>
+                    <span class="lib-item disabled" data-metric="speed">[+] Velocità / Andatura</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- MODULO 5: ASSISTENTE IA -->
+        <section class="panel">
+            <h2>5. Assistente IA</h2>
+            <div class="chat-box" id="chat-messages">
+                <div class="ai-msg">Ciao! Carica i file di sessione per avviare l'analisi intelligente.</div>
+            </div>
+            <div class="chat-input-area">
+                <label for="chat-input" style="display:none;">Messaggio chat</label>
+                <input type="text" id="chat-input" placeholder="Chiedi ai dati della sessione...">
+                <button id="btn-send-chat">Invia</button>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODULO 4: MASTER TIMELINE & SINCRONIZZAZIONE -->
+    <footer class="master-timeline-bar">
+        <div class="sync-controls">
+            <label><input type="checkbox" id="sync-checkbox" checked> Sincronizza Video & Telemetria</label>
+            <div class="time-offsets">
+                <label for="offset-video">Offset V: <input type="number" id="offset-video" value="0.0" step="0.1"></label>
+                <label for="offset-telemetry">Offset T: <input type="number" id="offset-telemetry" value="0.0" step="0.1"></label>
+            </div>
+        </div>
+        <div class="timeline-slider-wrapper">
+            <span id="time-current">00:00</span>
+            <label for="master-slider" style="display:none;">Timeline principale</label>
+            <input type="range" id="master-slider" min="0" max="100" value="0">
+            <span id="time-total">00:00</span>
+        </div>
+        <div class="file-telemetry-upload">
+            <input type="file" id="telemetry-input" accept=".fit,.gpx,.tcx" hidden>
+            <button id="btn-upload-telemetry" class="btn-primary">📁 Carica Telemetria</button>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
