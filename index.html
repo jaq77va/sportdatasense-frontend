@@ -158,17 +158,14 @@
         }
 
         video {
-            width: 100%;
-            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
             object-fit: contain;
+            display: block;
         }
 
         canvas#drawing-canvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
             pointer-events: none;
             z-index: 10;
         }
@@ -408,7 +405,7 @@
 
     <!-- BARRA SUPERIORE -->
     <header class="top-nav">
-        <div class="logo">SportDataSense TEST 4 <span>[Workstation]</span></div>
+        <div class="logo">SportDataSense TEST 5 <span>[Workstation]</span></div>
         <div class="session-info">Sessione: <span id="current-session-name">Nessun file caricato</span></div>
         <div class="actions">
             <button id="btn-reset" class="btn-danger" title="Azzera stato in-memory">↺ Reset Completo</button>
@@ -432,7 +429,7 @@
             <div class="video-tools" id="video-tools" style="display:none;">
                 <div class="tool-group">
                     <span id="label-tool-select">Strumento:</span>
-                    <button class="tool-btn active" data-tool="line" aria-labelledby="label-tool-select">Linea</button>
+                    <button class="tool-btn" data-tool="line" aria-labelledby="label-tool-select">Linea</button>
                     <button class="tool-btn" data-tool="circle" aria-labelledby="label-tool-select">Cerchio</button>
                     <button class="tool-btn" data-tool="marker" aria-labelledby="label-tool-select">Marker</button>
                     <button class="tool-btn" data-tool="angle" aria-labelledby="label-tool-select">Angolo / Arco</button>
