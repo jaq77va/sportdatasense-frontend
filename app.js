@@ -10,6 +10,7 @@ const appState = {
     videoLoaded: false,
     currentTool: null,
     clickPoints: [],
+    drawings: [], // Array per memorizzare permanentemente i disegni e i marker sul canvas
     telemetryData: null
 };
 
@@ -68,6 +69,7 @@ function handleVideoFile(file) {
     mainVideo.onloadedmetadata = () => {
         drawingCanvas.width = mainVideo.videoWidth || 1280;
         drawingCanvas.height = mainVideo.videoHeight || 720;
+        redrawCanvas(); // Rigenera eventuali disegni proporzionati alle dimensioni
     };
 }
 
@@ -97,10 +99,11 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
 const btnClearCanvas = document.getElementById('btn-clear-canvas');
 if (btnClearCanvas) {
     btnClearCanvas.addEventListener('click', () => {
+        appState.drawings = [];
+        appState.clickPoints = [];
         if (ctx) {
             ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
         }
-        appState.clickPoints = [];
     });
 }
 
@@ -117,34 +120,39 @@ if (drawingCanvas) {
         appState.clickPoints.push({ x, y });
         
         if (appState.currentTool === 'marker') {
-            drawMarker(x, y);
+            appState.drawings.push({ type: 'marker', x: x, y: y });
+            redrawCanvas();
             appState.clickPoints = [];
         } else if (appState.currentTool === 'line' && appState.clickPoints.length === 2) {
-            drawLine(appState.clickPoints[0], appState.clickPoints[1]);
+            appState.drawings.push({ type: 'line', p1: appState.clickPoints[0], p2: appState.clickPoints[1] });
+            redrawCanvas();
             appState.clickPoints = [];
         }
     });
 }
 
-function drawMarker(x, y) {
+function redrawCanvas() {
     if (!ctx) return;
-    ctx.beginPath();
-    ctx.arc(x, y, 8, 0, 2 * Math.PI);
-    ctx.fillStyle = '#ef4444';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-}
-
-function drawLine(p1, p2) {
-    if (!ctx) return;
-    ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 4;
-    ctx.stroke();
+    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    
+    appState.drawings.forEach(item => {
+        if (item.type === 'marker') {
+            ctx.beginPath();
+            ctx.arc(item.x, item.y, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ef4444';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+        } else if (item.type === 'line') {
+            ctx.beginPath();
+            ctx.moveTo(item.p1.x, item.p1.y);
+            ctx.lineTo(item.p2.x, item.p2.y);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+    });
 }
 
 // --- 3. COMUNICAZIONE CON IL BACKEND PYTHON (FASTAPI) ---
