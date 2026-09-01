@@ -74,12 +74,22 @@ function handleVideoFile(file) {
 // --- 2. STRUMENTI DI DISEGNO E CANVAS ---
 document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
+        const clickedTool = e.target.getAttribute('data-tool');
+        
+        // Se clicchi sullo stesso strumento già attivo, lo disattivi (TOGGLE) sbloccando il player
+        if (appState.currentTool === clickedTool) {
+            e.target.classList.remove('active');
+            appState.currentTool = null;
+            drawingCanvas.classList.remove('active-drawing');
+            return;
+        }
+
+        // Altrimenti attiva il nuovo strumento
         document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
-        appState.currentTool = e.target.getAttribute('data-tool');
+        appState.currentTool = clickedTool;
         appState.clickPoints = [];
         
-        // Attiva i click sul canvas solo quando viene selezionato uno strumento di disegno
         drawingCanvas.classList.add('active-drawing');
     });
 });
