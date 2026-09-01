@@ -10,11 +10,11 @@ const appState = {
     videoLoaded: false,
     currentTool: null,
     clickPoints: [],
-    drawings: [], // Array per memorizzare permanentemente i disegni e i marker sul canvas
+    drawings: [], // Array per memorizzare permanentemente i disegni e i marker
     telemetryData: null
 };
 
-// Riferimenti DOM principali (ID allineati correttamente con l'HTML)
+// Riferimenti DOM principali
 const videoDropzone = document.getElementById('video-dropzone');
 const videoInput = document.getElementById('video-input');
 const videoContainer = document.getElementById('video-container');
@@ -63,22 +63,37 @@ function handleVideoFile(file) {
     videoTools.style.display = 'flex';
     appState.videoLoaded = true;
     
-    // Il canvas parte disattivato per permettere l'uso dei controlli nativi del video
     drawingCanvas.classList.remove('active-drawing');
 
     mainVideo.onloadedmetadata = () => {
+        // Imposta la risoluzione interna del canvas sulla risoluzione effettiva del video
         drawingCanvas.width = mainVideo.videoWidth || 1280;
         drawingCanvas.height = mainVideo.videoHeight || 720;
-        redrawCanvas(); // Rigenera eventuali disegni proporzionati alle dimensioni
+        
+        updateCanvasDisplaySize();
+        redrawCanvas();
     };
 }
+
+// Sincronizza le dimensioni visive del canvas con quelle reali del video renderizzato
+function updateCanvasDisplaySize() {
+    if (!mainVideo || !drawingCanvas) return;
+    const rect = mainVideo.getBoundingClientRect();
+    drawingCanvas.style.width = `${rect.width}px`;
+    drawingCanvas.style.height = `${rect.height}px`;
+    drawingCanvas.style.top = `${mainVideo.offsetTop}px`;
+    drawingCanvas.style.left = `${mainVideo.offsetLeft}px`;
+}
+
+// Aggiorna le dimensioni del canvas se la finestra viene ridimensionata
+window.addEventListener('resize', updateCanvasDisplaySize);
 
 // --- 2. STRUMENTI DI DISEGNO E CANVAS ---
 document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
         const clickedTool = e.target.getAttribute('data-tool');
         
-        // Se clicchi sullo stesso strumento già attivo, lo disattivi (TOGGLE) sbloccando il player
+        // Toggle strumento attivo
         if (appState.currentTool === clickedTool) {
             e.target.classList.remove('active');
             appState.currentTool = null;
@@ -86,13 +101,13 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
             return;
         }
 
-        // Altrimenti attiva il nuovo strumento
         document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
         appState.currentTool = clickedTool;
         appState.clickPoints = [];
         
         drawingCanvas.classList.add('active-drawing');
+        updateCanvasDisplaySize();
     });
 });
 
