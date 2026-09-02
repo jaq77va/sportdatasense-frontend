@@ -75,14 +75,13 @@ function handleVideoFile(file) {
     };
 }
 
-// Sincronizza le dimensioni visive del canvas con quelle reali del video renderizzato
+// Sincronizza le dimensioni visive del canvas con quelle del container lasciando liberi i controlli in basso
 function updateCanvasDisplaySize() {
-    if (!mainVideo || !drawingCanvas) return;
-    const rect = mainVideo.getBoundingClientRect();
-    drawingCanvas.style.width = `${rect.width}px`;
-    drawingCanvas.style.height = `${rect.height}px`;
-    drawingCanvas.style.top = `${mainVideo.offsetTop}px`;
-    drawingCanvas.style.left = `${mainVideo.offsetLeft}px`;
+    if (!videoContainer || !drawingCanvas) return;
+    drawingCanvas.style.width = `${videoContainer.clientWidth}px`;
+    drawingCanvas.style.height = `${videoContainer.clientHeight - 50}px`;
+    drawingCanvas.style.top = `0px`;
+    drawingCanvas.style.left = `0px`;
 }
 
 // Aggiorna le dimensioni del canvas se la finestra viene ridimensionata
