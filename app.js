@@ -63,6 +63,8 @@ function handleVideoFile(file) {
     videoTools.style.display = 'flex';
     appState.videoLoaded = true;
     
+    // Reset iniziale: nessuno strumento attivo, player controllabile
+    appState.currentTool = null;
     drawingCanvas.classList.remove('active-drawing');
 
     mainVideo.onloadedmetadata = () => {
@@ -75,13 +77,14 @@ function handleVideoFile(file) {
     };
 }
 
-// Sincronizza le dimensioni visive del canvas con quelle del container lasciando liberi i controlli in basso
+// Sincronizza le dimensioni visive del canvas con quelle reali del video renderizzato
 function updateCanvasDisplaySize() {
-    if (!videoContainer || !drawingCanvas) return;
-    drawingCanvas.style.width = `${videoContainer.clientWidth}px`;
-    drawingCanvas.style.height = `${videoContainer.clientHeight - 50}px`;
-    drawingCanvas.style.top = `0px`;
-    drawingCanvas.style.left = `0px`;
+    if (!mainVideo || !drawingCanvas) return;
+    const rect = mainVideo.getBoundingClientRect();
+    drawingCanvas.style.width = `${rect.width}px`;
+    drawingCanvas.style.height = `${rect.height}px`;
+    drawingCanvas.style.top = `${mainVideo.offsetTop}px`;
+    drawingCanvas.style.left = `${mainVideo.offsetLeft}px`;
 }
 
 // Aggiorna le dimensioni del canvas se la finestra viene ridimensionata
@@ -92,7 +95,7 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
         const clickedTool = e.target.getAttribute('data-tool');
         
-        // Toggle strumento attivo
+        // Toggle strumento attivo: se clicchi lo stesso, si disattiva e torni al controllo player
         if (appState.currentTool === clickedTool) {
             e.target.classList.remove('active');
             appState.currentTool = null;
@@ -100,6 +103,7 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
             return;
         }
 
+        // Attiva il nuovo strumento e blocca temporaneamente l'interazione diretta col player
         document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
         appState.currentTool = clickedTool;
