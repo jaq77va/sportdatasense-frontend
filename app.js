@@ -10,7 +10,7 @@ const appState = {
     videoLoaded: false,
     currentTool: null,
     clickPoints: [],
-    drawings: [], // Array per memorizzare permanentemente i disegni e i marker
+    drawings: [], // Array per memorizzare permanentemente i disegni e i marker con il loro timestamp
     telemetryData: null
 };
 
@@ -90,6 +90,13 @@ function updateCanvasDisplaySize() {
 // Aggiorna le dimensioni del canvas se la finestra viene ridimensionata
 window.addEventListener('resize', updateCanvasDisplaySize);
 
+// Ascolta l'avanzamento del video per aggiornare i disegni in base al tempo (timestamp)
+if (mainVideo) {
+    mainVideo.addEventListener('timeupdate', () => {
+        redrawCanvas();
+    });
+}
+
 // --- 2. STRUMENTI DI DISEGNO E CANVAS ---
 document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -135,14 +142,27 @@ if (drawingCanvas) {
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
         
+        // Registra il timestamp corrente del video per agganciare l'elemento al tempo esatto
+        const currentTime = mainVideo ? mainVideo.currentTime : 0;
+        
         appState.clickPoints.push({ x, y });
         
         if (appState.currentTool === 'marker') {
-            appState.drawings.push({ type: 'marker', x: x, y: y });
+            appState.drawings.push({ 
+                type: 'marker', 
+                timestamp: currentTime, 
+                x: x, 
+                y: y 
+            });
             redrawCanvas();
             appState.clickPoints = [];
         } else if (appState.currentTool === 'line' && appState.clickPoints.length === 2) {
-            appState.drawings.push({ type: 'line', p1: appState.clickPoints[0], p2: appState.clickPoints[1] });
+            appState.drawings.push({ 
+                type: 'line', 
+                timestamp: currentTime, 
+                p1: appState.clickPoints[0], 
+                p2: appState.clickPoints[1] 
+            });
             redrawCanvas();
             appState.clickPoints = [];
         }
@@ -153,22 +173,29 @@ function redrawCanvas() {
     if (!ctx) return;
     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     
-    appState.drawings.forEach(item => {
-        if (item.type === 'marker') {
-            ctx.beginPath();
-            ctx.arc(item.x, item.y, 8, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ef4444';
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#ffffff';
-            ctx.stroke();
-        } else if (item.type === 'line') {
-            ctx.beginPath();
-            ctx.moveTo(item.p1.x, item.p1.y);
-            ctx.lineTo(item.p2.x, item.p2.y);
-            ctx.strokeStyle = '#38bdf8';
-            ctx.lineWidth = 4;
-            ctx.stroke();
+    const currentTime = mainVideo ? mainVideo.currentTime : 0;
+    const tolerance = 0.5; // Finestra di tolleranza in secondi in cui il disegno rimane visibile attorno al timestamp
+
+    appState.drawings.item = appState.drawings.forEach(item => {
+        // Mostra il disegno se il video si trova temporalmente vicino al momento in cui è stato tracciato (es. ±0.5 secondi)
+        // Puoi rimuovere questo controllo se desideri che i disegni rimangano fissi indipendentemente dal tempo.
+        if (Math.abs(item.timestamp - currentTime) <= tolerance) {
+            if (item.type === 'marker') {
+                ctx.beginPath();
+                ctx.arc(item.x, item.y, 8, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ef4444';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+            } else if (item.type === 'line') {
+                ctx.beginPath();
+                ctx.moveTo(item.p1.x, item.p1.y);
+                ctx.lineTo(item.p2.x, item.p2.y);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
         }
     });
 }
