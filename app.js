@@ -226,19 +226,23 @@ function redrawCanvas() {
 
 // Algoritmo di tracciamento automatico frame per frame tramite Template Matching[cite: 19]
 // Algoritmo di tracciamento automatico stabile (Template Matching con passo 2 e smorzamento)
+// Algoritmo di tracciamento ottimizzato contro i falsi positivi sullo sfondo
 function trackMarkers() {
     if (bioVideo.paused || bioVideo.ended) return;
     analysisCanvas.width = bioVideo.videoWidth; 
     analysisCanvas.height = bioVideo.videoHeight;
     analysisCtx.drawImage(bioVideo, 0, 0);
 
-    const baseSearchRadius = 45;
+    // Raggio ristretto a 20 per evitare che agganci elementi lontani (es. linee del campo)
+    const baseSearchRadius = 20; 
+    const maxJumpAllowed = 30; // Soglia massima di spostamento per fotogramma
+
     const trackItem = (m) => {
         if (!m.patch) return;
-        let predictedX = m.rawX + m.vx; 
-        let predictedY = m.rawY + m.vy;
-        let bestX = predictedX; 
-        let bestY = predictedY; 
+        let predictedX = m.rawX + (m.vx || 0); 
+        let predictedY = m.rawY + (m.vy || 0);
+        let bestX = m.rawX; 
+        let bestY = m.rawY; 
         let minDiff = Infinity;
         
         const startX = Math.max(0, Math.floor(predictedX - baseSearchRadius)); 
@@ -246,7 +250,7 @@ function trackMarkers() {
         const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius)); 
         const endY = Math.min(bioVideo.videoHeight - m.patchSize, Math.floor(predictedY + baseSearchRadius));
 
-        // PASSO 2: Ripristinato per evitare falsi positivi e rumore visivo sui pixel adiacenti
+        // Scansione a passo 2 con finestra ristretta
         for (let y = startY; y <= endY; y += 2) {
             for (let x = startX; x <= endX; x += 2) {
                 try {
@@ -266,9 +270,16 @@ function trackMarkers() {
             }
         }
         
-        // SMORZAMENTO VELOCITÀ: Fattore moltiplicativo stabile ereditato dal codice funzionante
-        m.vx = (bestX - m.rawX) * (m.label === 'F' ? 0.9 : 0.6); 
-        m.vy = (bestY - m.rawY) * (m.label === 'F' ? 0.9 : 0.6);
+        // CONTROLLO ANTI-TELETRASPORTO: se il salto è troppo anomalo, usa l'inerzia
+        const distance = Math.hypot(bestX - m.rawX, bestY - m.rawY);
+        if (distance > maxJumpAllowed) {
+            bestX = m.rawX + (m.vx || 0) * 0.5;
+            bestY = m.rawY + (m.vy || 0) * 0.5;
+        }
+
+        // Smorzamento della velocità
+        m.vx = (bestX - m.rawX) * 0.5; 
+        m.vy = (bestY - m.rawY) * 0.5;
         m.rawX = bestX; 
         m.rawY = bestY; 
         m.x = bestX; 
