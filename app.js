@@ -10,7 +10,7 @@ const appState = {
     videoLoaded: false,
     currentTool: null,
     clickPoints: [],
-    drawings: [], // Array per memorizzare permanentemente i disegni e i marker con il loro timestamp
+    drawings: [], // Array di oggetti complessi con keyframe temporali
     telemetryData: null
 };
 
@@ -68,10 +68,8 @@ function handleVideoFile(file) {
     drawingCanvas.classList.remove('active-drawing');
 
     mainVideo.onloadedmetadata = () => {
-        // Imposta la risoluzione interna del canvas sulla risoluzione effettiva del video
         drawingCanvas.width = mainVideo.videoWidth || 1280;
         drawingCanvas.height = mainVideo.videoHeight || 720;
-        
         updateCanvasDisplaySize();
         redrawCanvas();
     };
@@ -87,22 +85,20 @@ function updateCanvasDisplaySize() {
     drawingCanvas.style.left = `${mainVideo.offsetLeft}px`;
 }
 
-// Aggiorna le dimensioni del canvas se la finestra viene ridimensionata
 window.addEventListener('resize', updateCanvasDisplaySize);
 
-// Ascolta l'avanzamento del video per aggiornare i disegni in base al tempo (timestamp)
+// Aggiorna il canvas in tempo reale man mano che il video riproduce i fotogrammi
 if (mainVideo) {
     mainVideo.addEventListener('timeupdate', () => {
         redrawCanvas();
     });
 }
 
-// --- 2. STRUMENTI DI DISEGNO E CANVAS ---
+// --- 2. STRUMENTI DI DISEGNO E KEYFRAME TRACKING ---
 document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
         const clickedTool = e.target.getAttribute('data-tool');
         
-        // Toggle strumento attivo: se clicchi lo stesso, si disattiva e torni al controllo player
         if (appState.currentTool === clickedTool) {
             e.target.classList.remove('active');
             appState.currentTool = null;
@@ -110,7 +106,6 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
             return;
         }
 
-        // Attiva il nuovo strumento e blocca temporaneamente l'interazione diretta col player
         document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(b => b.classList.remove('active'));
         e.target.classList.add('active');
         appState.currentTool = clickedTool;
@@ -142,18 +137,24 @@ if (drawingCanvas) {
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
         
-        // Registra il timestamp corrente del video per agganciare l'elemento al tempo esatto
         const currentTime = mainVideo ? mainVideo.currentTime : 0;
-        
         appState.clickPoints.push({ x, y });
         
         if (appState.currentTool === 'marker') {
-            appState.drawings.push({ 
-                type: 'marker', 
-                timestamp: currentTime, 
-                x: x, 
-                y: y 
-            });
+            // Verifica se esiste già un marker attivo vicino temporalmente per aggiungere un Keyframe (Tracking manuale sequenziale)
+            const existingMarker = appState.drawings.find(d => d.type === 'marker' && Math.abs(d.startTime - currentTime) < 2.0);
+            
+            if (existingMarker) {
+                // Aggiunge un nuovo punto chiave alla traiettoria esistente
+                existingMarker.keyframes.push({ time: currentTime, x: x, y: y });
+            } else {
+                // Crea un nuovo oggetto marker tracciabile con il primo keyframe
+                appState.drawings.push({ 
+                    type: 'marker', 
+                    startTime: currentTime,
+                    keyframes: [{ time: currentTime, x: x, y: y }]
+                });
+            }
             redrawCanvas();
             appState.clickPoints = [];
         } else if (appState.currentTool === 'line' && appState.clickPoints.length === 2) {
@@ -169,26 +170,65 @@ if (drawingCanvas) {
     });
 }
 
+// Funzione di interpolazione tra i keyframe per seguire l'oggetto in movimento
+function getPositionAtTime(keyframes, currentTime) {
+    if (!keyframes || keyframes.length === 0) return null;
+    
+    // Ordina i keyframe per tempo
+    const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+    
+    // Se c'è un solo keyframe o siamo prima del primo
+    if (sorted.length === 1 || currentTime <= sorted[0].time) {
+        return { x: sorted[0].x, y: sorted[0].y };
+    }
+    
+    // Se siamo oltre l'ultimo keyframe
+    if (currentTime >= sorted[sorted.length - 1].time) {
+        const last = sorted[sorted.length - 1];
+        // Opzionale: mantieni visibile per un piccolo delta o ferma all'ultimo punto
+        return { x: last.x, y: last.y };
+    }
+    
+    // Trova l'intervallo tra due keyframe in cui ricade il currentTime corrente
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const k1 = sorted[i];
+        const k2 = sorted[i + 1];
+        if (currentTime >= k1.time && currentTime <= k2.time) {
+            // Interpola linearmente tra k1 e k2 per un movimento fluido del marker
+            const progress = (currentTime - k1.time) / (k2.time - k1.time);
+            return {
+                x: k1.x + (k2.x - k1.x) * progress,
+                y: k1.y + (k2.y - k1.y) * progress
+            };
+        }
+    }
+    return null;
+}
+
 function redrawCanvas() {
     if (!ctx) return;
     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     
     const currentTime = mainVideo ? mainVideo.currentTime : 0;
-    const tolerance = 0.5; // Finestra di tolleranza in secondi in cui il disegno rimane visibile attorno al timestamp
+    const tolerance = 0.8; // Finestra di visibilità
 
-    appState.drawings.item = appState.drawings.forEach(item => {
-        // Mostra il disegno se il video si trova temporalmente vicino al momento in cui è stato tracciato (es. ±0.5 secondi)
-        // Puoi rimuovere questo controllo se desideri che i disegni rimangano fissi indipendentemente dal tempo.
-        if (Math.abs(item.timestamp - currentTime) <= tolerance) {
-            if (item.type === 'marker') {
+    appState.drawings.forEach(item => {
+        if (item.type === 'marker') {
+            // Calcola la posizione interpolata in base ai keyframe registrati
+            const pos = getPositionAtTime(item.keyframes, currentTime);
+            const activeKeyframe = item.keyframes.some(kf => Math.abs(kf.time - currentTime) <= tolerance);
+
+            if (pos && activeKeyframe) {
                 ctx.beginPath();
-                ctx.arc(item.x, item.y, 8, 0, 2 * Math.PI);
+                ctx.arc(pos.x, pos.y, 9, 0, 2 * Math.PI);
                 ctx.fillStyle = '#ef4444';
                 ctx.fill();
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = '#ffffff';
                 ctx.stroke();
-            } else if (item.type === 'line') {
+            }
+        } else if (item.type === 'line') {
+            if (Math.abs(item.timestamp - currentTime) <= tolerance) {
                 ctx.beginPath();
                 ctx.moveTo(item.p1.x, item.p1.y);
                 ctx.lineTo(item.p2.x, item.p2.y);
