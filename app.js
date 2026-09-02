@@ -224,12 +224,10 @@ function redrawCanvas() {
     });
 }
 
-// Algoritmo di tracciamento automatico frame per frame tramite Template Matching[cite: 19]
-// Algoritmo di tracciamento avanzato per palline e oggetti veloci (Template Matching + Filtro Colore)
+// Algoritmo di tracciamento stabilizzato con Template Immutabile (Anti-Drift)
 function trackMarkers() {
     if (bioVideo.paused || bioVideo.ended) return;
     
-    // Sincronizza le dimensioni reali del canvas con il video
     if (analysisCanvas.width !== bioVideo.videoWidth || analysisCanvas.height !== bioVideo.videoHeight) {
         analysisCanvas.width = bioVideo.videoWidth; 
         analysisCanvas.height = bioVideo.videoHeight;
@@ -237,13 +235,17 @@ function trackMarkers() {
     
     analysisCtx.drawImage(bioVideo, 0, 0);
 
-    const baseSearchRadius = 35; // Raggio bilanciato per seguire la pallina
-    const maxJumpAllowed = 45;   // Evita teletrasporti anomali su linee o sfondi
+    const baseSearchRadius = 25; // Raggio stretto e controllato
+    const maxJumpAllowed = 30;   // Blocco anti-teletrasporto su elementi di sfondo
 
     const trackItem = (m) => {
         if (!m.patch) return;
         
-        // Calcolo della posizione prevista basata sull'inerzia (velocità precedente)
+        // Fissa la patch iniziale la prima volta e non cambiarla mai più (impedisce il drift sulla linea)
+        if (!m.initialPatch) {
+            m.initialPatch = m.patch;
+        }
+
         let predictedX = m.rawX + (m.vx || 0); 
         let predictedY = m.rawY + (m.vy || 0);
         let bestX = m.rawX; 
@@ -255,24 +257,19 @@ function trackMarkers() {
         const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius)); 
         const endY = Math.min(bioVideo.videoHeight - m.patchSize, Math.floor(predictedY + baseSearchRadius));
 
-        // Esplorazione della patch con passo 1 o 2
+        // Scansione a passo 2 per performance e stabilità
         for (let y = startY; y <= endY; y += 2) {
             for (let x = startX; x <= endX; x += 2) {
                 try {
                     const candidateData = analysisCtx.getImageData(x, y, m.patchSize, m.patchSize);
                     let diff = 0;
-                    let colorDist = 0;
                     
                     for (let i = 0; i < candidateData.data.length; i += 4) {
-                        // Differenza assoluta RGB (Template Matching standard)
-                        const dr = Math.abs(candidateData.data[i] - m.patch.data[i]);
-                        const dg = Math.abs(candidateData.data[i+1] - m.patch.data[i+1]);
-                        const db = Math.abs(candidateData.data[i+2] - m.patch.data[i+2]);
-                        
-                        diff += (dr + dg + db);
+                        diff += Math.abs(candidateData.data[i] - m.initialPatch.data[i]) + 
+                                Math.abs(candidateData.data[i+1] - m.initialPatch.data[i+1]) + 
+                                Math.abs(candidateData.data[i+2] - m.initialPatch.data[i+2]);
                     }
                     
-                    // Punteggio combinato (minor diff = match migliore)
                     if (diff < minScore) { 
                         minScore = diff; 
                         bestX = x + m.patchSize / 2; 
@@ -282,33 +279,21 @@ function trackMarkers() {
             }
         }
         
-        // Controllo di sicurezza anti-salto su elementi di disturbo (es. linee bianche del campo)
+        // Controllo di sicurezza: se il delta è troppo anomalo, frena e usa l'inerzia
         const distance = Math.hypot(bestX - m.rawX, bestY - m.rawY);
         if (distance > maxJumpAllowed) {
-            // Se tenta di saltare troppo lontano, frena mantenendo l'inerzia ridotta
-            bestX = m.rawX + (m.vx || 0) * 0.3;
-            bestY = m.rawY + (m.vy || 0) * 0.3;
+            bestX = m.rawX + (m.vx || 0) * 0.2;
+            bestY = m.rawY + (m.vy || 0) * 0.2;
         }
 
-        // Smorzamento cinematico della velocità (Fattore 0.7 per fluidità)
-        m.vx = (bestX - m.rawX) * 0.7; 
-        m.vy = (bestY - m.rawY) * 0.7;
+        // Smorzamento del movimento
+        m.vx = (bestX - m.rawX) * 0.5; 
+        m.vy = (bestY - m.rawY) * 0.5;
         m.rawX = bestX; 
         m.rawY = bestY; 
         m.x = bestX; 
         m.y = bestY;
-
-        // Aggiornamento dinamico della patch (Adaptive Template): cattura la nuova faccia della pallina 
-        // per evitare che si sballi se la luce o l'inclinazione cambiano leggermente nei fotogrammi successivi
-        try {
-            const pX = Math.max(0, Math.floor(bestX - m.patchSize / 2));
-            const pY = Math.max(0, Math.floor(bestY - m.patchSize / 2));
-            if (pX + m.patchSize <= bioVideo.videoWidth && pY + m.patchSize <= bioVideo.videoHeight) {
-                m.patch = analysisCtx.getImageData(pX, pY, m.patchSize, m.patchSize);
-            }
-        } catch(e) {}
         
-        // Registrazione storico per grafici e timeline
         if (!m.historyRawX) m.historyRawX = []; 
         if (!m.historyRawY) m.historyRawY = []; 
         if (!m.historyTime) m.historyTime = [];
