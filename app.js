@@ -225,6 +225,7 @@ function redrawCanvas() {
 }
 
 // Algoritmo di tracciamento automatico frame per frame tramite Template Matching[cite: 19]
+// Algoritmo di tracciamento automatico ad alta precisione (Template Matching ottimizzato)
 function trackMarkers() {
     if (!mainVideo || mainVideo.paused || mainVideo.ended) return;
 
@@ -232,10 +233,12 @@ function trackMarkers() {
     analysisCanvas.height = mainVideo.videoHeight;
     analysisCtx.drawImage(mainVideo, 0, 0);
 
-    const baseSearchRadius = 45;
+    // Raggio di ricerca ampliato a 50px per non perdere oggetti veloci
+    const baseSearchRadius = 50;
 
     appState.drawings.forEach(item => {
         if (item.type === 'marker' && item.patch) {
+            // Predizione della posizione futura basata sulla velocità precedente
             let predictedX = item.rawX + item.vx;
             let predictedY = item.rawY + item.vy;
             let bestX = predictedX;
@@ -247,9 +250,9 @@ function trackMarkers() {
             const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius));
             const endY = Math.min(mainVideo.videoHeight - item.patchSize, Math.floor(predictedY + baseSearchRadius));
 
-            // Scansiona l'intorno alla ricerca del match migliore dei pixel[cite: 19]
-            for (let y = startY; y <= endY; y += 2) {
-                for (let x = startX; x <= endX; x += 2) {
+            // SCANSIONE A PASSO 1: Analizza ogni singolo pixel per la massima precisione geometrica
+            for (let y = startY; y <= endY; y += 1) {
+                for (let x = startX; x <= endX; x += 1) {
                     try {
                         const candidateData = analysisCtx.getImageData(x, y, item.patchSize, item.patchSize);
                         let diff = 0;
@@ -267,9 +270,14 @@ function trackMarkers() {
                 }
             }
 
-            // Aggiorna velocità e posizioni basate sullo spostamento rilevato[cite: 19]
-            item.vx = (bestX - item.rawX) * 0.7;
-            item.vy = (bestY - item.rawY) * 0.7;
+            // APPLICAZIONE MOMENTUM / INERZIA: Evita sobbalzi e stabilisce un movimento fluido
+            const measuredVx = bestX - item.rawX;
+            const measuredVy = bestY - item.rawY;
+            
+            // Filtro di smoothing (40% velocità precedente + 60% nuova misurazione)
+            item.vx = (item.vx * 0.4) + (measuredVx * 0.6);
+            item.vy = (item.vy * 0.4) + (measuredVy * 0.6);
+
             item.rawX = bestX;
             item.rawY = bestY;
             item.x = bestX;
