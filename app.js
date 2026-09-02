@@ -10,7 +10,7 @@ const appState = {
     videoLoaded: false,
     currentTool: null,
     clickPoints: [],
-    drawings: [], // Array di oggetti complessi con keyframe temporali
+    drawings: [], // Array per memorizzare i marker con tracciamento avanzato
     telemetryData: null
 };
 
@@ -23,6 +23,11 @@ const videoTools = document.getElementById('video-tools');
 const drawingCanvas = document.getElementById('drawing-canvas');
 const ctx = drawingCanvas ? drawingCanvas.getContext('2d') : null;
 const sessionNameSpan = document.getElementById('current-session-name');
+
+// Canvas offscreen per l'analisi dei pixel del video (Template Matching)[cite: 19]
+const analysisCanvas = document.createElement('canvas');
+const analysisCtx = analysisCanvas.getContext('2d', { willReadFrequently: true });
+let trackingInterval = null;
 
 // --- 1. GESTIONE CARICAMENTO VIDEO ---
 videoDropzone.addEventListener('click', () => videoInput.click());
@@ -69,11 +74,13 @@ function handleVideoFile(file) {
     mainVideo.onloadedmetadata = () => {
         drawingCanvas.width = mainVideo.videoWidth || 1280;
         drawingCanvas.height = mainVideo.videoHeight || 720;
+        
         updateCanvasDisplaySize();
         redrawCanvas();
     };
 }
 
+// Sincronizza le dimensioni visive del canvas con quelle reali del video renderizzato
 function updateCanvasDisplaySize() {
     if (!mainVideo || !drawingCanvas) return;
     const rect = mainVideo.getBoundingClientRect();
@@ -85,13 +92,7 @@ function updateCanvasDisplaySize() {
 
 window.addEventListener('resize', updateCanvasDisplaySize);
 
-if (mainVideo) {
-    mainVideo.addEventListener('timeupdate', () => {
-        redrawCanvas();
-    });
-}
-
-// --- 2. STRUMENTI DI DISEGNO E KEYFRAME TRACKING ---
+// --- 2. STRUMENTI DI DISEGNO E TRACKING VISIVO ---
 document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
     btn.addEventListener('click', (e) => {
         const clickedTool = e.target.getAttribute('data-tool');
@@ -116,6 +117,7 @@ document.querySelectorAll('.tool-btn:not(#btn-clear-canvas)').forEach(btn => {
 const btnClearCanvas = document.getElementById('btn-clear-canvas');
 if (btnClearCanvas) {
     btnClearCanvas.addEventListener('click', () => {
+        if (trackingInterval) cancelAnimationFrame(trackingInterval);
         appState.drawings = [];
         appState.clickPoints = [];
         if (ctx) {
@@ -134,30 +136,47 @@ if (drawingCanvas) {
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
         
-        const currentTime = mainVideo ? mainVideo.currentTime : 0;
         appState.clickPoints.push({ x, y });
         
         if (appState.currentTool === 'marker') {
-            // Cerca un marker esistente vicino nel tempo (finestra di 3 secondi) per aggiungergli un nuovo keyframe
-            const existingMarker = appState.drawings.find(d => d.type === 'marker' && Math.abs(d.startTime - currentTime) < 3.0);
+            // Estrazione del patch visivo (campione di pixel) nel punto cliccato[cite: 19]
+            const patchSize = 14;
+            analysisCanvas.width = mainVideo.videoWidth;
+            analysisCanvas.height = mainVideo.videoHeight;
+            analysisCtx.drawImage(mainVideo, 0, 0);
             
-            if (existingMarker) {
-                existingMarker.keyframes.push({ time: currentTime, x: x, y: y });
-                // Riordina i keyframe cronologicamente
-                existingMarker.keyframes.sort((a, b) => a.time - b.time);
-            } else {
-                appState.drawings.push({ 
-                    type: 'marker', 
-                    startTime: currentTime,
-                    keyframes: [{ time: currentTime, x: x, y: y }]
-                });
+            let templateData = null;
+            try {
+                const pX = Math.max(0, Math.floor(x - patchSize / 2));
+                const pY = Math.max(0, Math.floor(y - patchSize / 2));
+                templateData = analysisCtx.getImageData(pX, pY, patchSize, patchSize);
+            } catch (err) {
+                console.error("Errore estrazione patch video:", err);
             }
+
+            // Aggiunge il marker strutturato con storico e velocità per il tracking[cite: 19]
+            appState.drawings.push({ 
+                type: 'marker', 
+                x: x, 
+                y: y,
+                rawX: x,
+                rawY: y,
+                vx: 0,
+                vy: 0,
+                historyRawX: [x],
+                historyRawY: [y],
+                historyTime: [mainVideo.currentTime],
+                patch: templateData,
+                patchSize: patchSize,
+                color: '#ef4444'
+            });
+
             redrawCanvas();
             appState.clickPoints = [];
         } else if (appState.currentTool === 'line' && appState.clickPoints.length === 2) {
             appState.drawings.push({ 
                 type: 'line', 
-                timestamp: currentTime, 
+                timestamp: mainVideo.currentTime, 
                 p1: appState.clickPoints[0], 
                 p2: appState.clickPoints[1] 
             });
@@ -167,71 +186,129 @@ if (drawingCanvas) {
     });
 }
 
-// Funzione di interpolazione tra i keyframe
-function getPositionAtTime(keyframes, currentTime) {
-    if (!keyframes || keyframes.length === 0) return null;
-    
-    const sorted = [...keyframes].sort((a, b) => a.time - b.time);
-    
-    // Se c'è un solo keyframe, mantienilo fisso o mostralo da quel momento in poi
-    if (sorted.length === 1) {
-        return currentTime >= sorted[0].time ? { x: sorted[0].x, y: sorted[0].y } : null;
-    }
-    
-    // Se siamo prima del primo keyframe
-    if (currentTime <= sorted[0].time) {
-        return { x: sorted[0].x, y: sorted[0].y };
-    }
-    
-    // Se siamo oltre l'ultimo keyframe, mantieni l'ultima posizione nota
-    if (currentTime >= sorted[sorted.length - 1].time) {
-        const last = sorted[sorted.length - 1];
-        return { x: last.x, y: last.y };
-    }
-    
-    // Interpolazione lineare tra i due keyframe adiacenti
-    for (let i = 0; i < sorted.length - 1; i++) {
-        const k1 = sorted[i];
-        const k2 = sorted[i + 1];
-        if (currentTime >= k1.time && currentTime <= k2.time) {
-            const progress = (currentTime - k1.time) / (k2.time - k1.time);
-            return {
-                x: k1.x + (k2.x - k1.x) * progress,
-                y: k1.y + (k2.y - k1.y) * progress
-            };
-        }
-    }
-    return null;
-}
-
+// Funzione di rendering grafico dei marker e delle relative traiettorie
 function redrawCanvas() {
     if (!ctx) return;
     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     
-    const currentTime = mainVideo ? mainVideo.currentTime : 0;
-
     appState.drawings.forEach(item => {
         if (item.type === 'marker') {
-            const pos = getPositionAtTime(item.keyframes, currentTime);
+            // Disegna la scia/traiettoria passata se presente[cite: 19]
+            if (item.historyRawX && item.historyRawX.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(item.historyRawX[0], item.historyRawY[0]);
+                for (let i = 1; i < item.historyRawX.length; i++) {
+                    ctx.lineTo(item.historyRawX[i], item.historyRawY[i]);
+                }
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = item.color;
+                ctx.stroke();
+            }
 
-            if (pos) {
-                ctx.beginPath();
-                ctx.arc(pos.x, pos.y, 9, 0, 2 * Math.PI);
-                ctx.fillStyle = '#ef4444';
-                ctx.fill();
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = '#ffffff';
-                ctx.stroke();
-            }
+            // Disegna il marker nella posizione corrente
+            ctx.beginPath();
+            ctx.arc(item.x, item.y, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = item.color;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
         } else if (item.type === 'line') {
-            if (Math.abs(item.timestamp - currentTime) <= 1.0) {
-                ctx.beginPath();
-                ctx.moveTo(item.p1.x, item.p1.y);
-                ctx.lineTo(item.p2.x, item.p2.y);
-                ctx.strokeStyle = '#38bdf8';
-                ctx.lineWidth = 4;
-                ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(item.p1.x, item.p1.y);
+            ctx.lineTo(item.p2.x, item.p2.y);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+    });
+}
+
+// Algoritmo di tracciamento automatico frame per frame tramite Template Matching[cite: 19]
+function trackMarkers() {
+    if (!mainVideo || mainVideo.paused || mainVideo.ended) return;
+
+    analysisCanvas.width = mainVideo.videoWidth;
+    analysisCanvas.height = mainVideo.videoHeight;
+    analysisCtx.drawImage(mainVideo, 0, 0);
+
+    const baseSearchRadius = 45;
+
+    appState.drawings.forEach(item => {
+        if (item.type === 'marker' && item.patch) {
+            let predictedX = item.rawX + item.vx;
+            let predictedY = item.rawY + item.vy;
+            let bestX = predictedX;
+            let bestY = predictedY;
+            let minDiff = Infinity;
+
+            const startX = Math.max(0, Math.floor(predictedX - baseSearchRadius));
+            const endX = Math.min(mainVideo.videoWidth - item.patchSize, Math.floor(predictedX + baseSearchRadius));
+            const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius));
+            const endY = Math.min(mainVideo.videoHeight - item.patchSize, Math.floor(predictedY + baseSearchRadius));
+
+            // Scansiona l'intorno alla ricerca del match migliore dei pixel[cite: 19]
+            for (let y = startY; y <= endY; y += 2) {
+                for (let x = startX; x <= endX; x += 2) {
+                    try {
+                        const candidateData = analysisCtx.getImageData(x, y, item.patchSize, item.patchSize);
+                        let diff = 0;
+                        for (let i = 0; i < candidateData.data.length; i += 4) {
+                            diff += Math.abs(candidateData.data[i] - item.patch.data[i]) + 
+                                    Math.abs(candidateData.data[i+1] - item.patch.data[i+1]) + 
+                                    Math.abs(candidateData.data[i+2] - item.patch.data[i+2]);
+                        }
+                        if (diff < minDiff) { 
+                            minDiff = diff; 
+                            bestX = x + item.patchSize / 2; 
+                            bestY = y + item.patchSize / 2; 
+                        }
+                    } catch (e) {}
+                }
             }
+
+            // Aggiorna velocità e posizioni basate sullo spostamento rilevato[cite: 19]
+            item.vx = (bestX - item.rawX) * 0.7;
+            item.vy = (bestY - item.rawY) * 0.7;
+            item.rawX = bestX;
+            item.rawY = bestY;
+            item.x = bestX;
+            item.y = bestY;
+
+            if (!item.historyRawX) item.historyRawX = [];
+            if (!item.historyRawY) item.historyRawY = [];
+            if (!item.historyTime) item.historyTime = [];
+
+            item.historyRawX.push(bestX);
+            item.historyRawY.push(bestY);
+            item.historyTime.push(mainVideo.currentTime);
+        }
+    });
+
+    redrawCanvas();
+    trackingInterval = requestAnimationFrame(trackMarkers);
+}
+
+// Gestione eventi di riproduzione video per avviare/fermare il loop di tracking
+if (mainVideo) {
+    mainVideo.addEventListener('play', () => {
+        if (trackingInterval) cancelAnimationFrame(trackingInterval);
+        trackingInterval = requestAnimationFrame(trackMarkers);
+    });
+
+    mainVideo.addEventListener('pause', () => {
+        if (trackingInterval) cancelAnimationFrame(trackingInterval);
+        redrawCanvas();
+    });
+
+    mainVideo.addEventListener('seeked', () => {
+        redrawCanvas();
+    });
+
+    mainVideo.addEventListener('timeupdate', () => {
+        // Mantiene il canvas sincronizzato durante lo scrubbing manuale
+        if (mainVideo.paused) {
+            redrawCanvas();
         }
     });
 }
