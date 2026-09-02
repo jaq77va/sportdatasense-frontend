@@ -225,75 +225,81 @@ function redrawCanvas() {
 }
 
 // Algoritmo di tracciamento automatico frame per frame tramite Template Matching[cite: 19]
-// Algoritmo di tracciamento automatico ad alta precisione (Template Matching ottimizzato)
+// Algoritmo di tracciamento automatico stabile (Template Matching con passo 2 e smorzamento)
 function trackMarkers() {
-    if (!mainVideo || mainVideo.paused || mainVideo.ended) return;
+    if (bioVideo.paused || bioVideo.ended) return;
+    analysisCanvas.width = bioVideo.videoWidth; 
+    analysisCanvas.height = bioVideo.videoHeight;
+    analysisCtx.drawImage(bioVideo, 0, 0);
 
-    analysisCanvas.width = mainVideo.videoWidth;
-    analysisCanvas.height = mainVideo.videoHeight;
-    analysisCtx.drawImage(mainVideo, 0, 0);
+    const baseSearchRadius = 45;
+    const trackItem = (m) => {
+        if (!m.patch) return;
+        let predictedX = m.rawX + m.vx; 
+        let predictedY = m.rawY + m.vy;
+        let bestX = predictedX; 
+        let bestY = predictedY; 
+        let minDiff = Infinity;
+        
+        const startX = Math.max(0, Math.floor(predictedX - baseSearchRadius)); 
+        const endX = Math.min(bioVideo.videoWidth - m.patchSize, Math.floor(predictedX + baseSearchRadius));
+        const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius)); 
+        const endY = Math.min(bioVideo.videoHeight - m.patchSize, Math.floor(predictedY + baseSearchRadius));
 
-    // Raggio di ricerca ampliato a 50px per non perdere oggetti veloci
-    const baseSearchRadius = 50;
-
-    appState.drawings.forEach(item => {
-        if (item.type === 'marker' && item.patch) {
-            // Predizione della posizione futura basata sulla velocità precedente
-            let predictedX = item.rawX + item.vx;
-            let predictedY = item.rawY + item.vy;
-            let bestX = predictedX;
-            let bestY = predictedY;
-            let minDiff = Infinity;
-
-            const startX = Math.max(0, Math.floor(predictedX - baseSearchRadius));
-            const endX = Math.min(mainVideo.videoWidth - item.patchSize, Math.floor(predictedX + baseSearchRadius));
-            const startY = Math.max(0, Math.floor(predictedY - baseSearchRadius));
-            const endY = Math.min(mainVideo.videoHeight - item.patchSize, Math.floor(predictedY + baseSearchRadius));
-
-            // SCANSIONE A PASSO 1: Analizza ogni singolo pixel per la massima precisione geometrica
-            for (let y = startY; y <= endY; y += 1) {
-                for (let x = startX; x <= endX; x += 1) {
-                    try {
-                        const candidateData = analysisCtx.getImageData(x, y, item.patchSize, item.patchSize);
-                        let diff = 0;
-                        for (let i = 0; i < candidateData.data.length; i += 4) {
-                            diff += Math.abs(candidateData.data[i] - item.patch.data[i]) + 
-                                    Math.abs(candidateData.data[i+1] - item.patch.data[i+1]) + 
-                                    Math.abs(candidateData.data[i+2] - item.patch.data[i+2]);
-                        }
-                        if (diff < minDiff) { 
-                            minDiff = diff; 
-                            bestX = x + item.patchSize / 2; 
-                            bestY = y + item.patchSize / 2; 
-                        }
-                    } catch (e) {}
-                }
+        // PASSO 2: Ripristinato per evitare falsi positivi e rumore visivo sui pixel adiacenti
+        for (let y = startY; y <= endY; y += 2) {
+            for (let x = startX; x <= endX; x += 2) {
+                try {
+                    const candidateData = analysisCtx.getImageData(x, y, m.patchSize, m.patchSize);
+                    let diff = 0;
+                    for (let i = 0; i < candidateData.data.length; i += 4) {
+                        diff += Math.abs(candidateData.data[i] - m.patch.data[i]) + 
+                                Math.abs(candidateData.data[i+1] - m.patch.data[i+1]) + 
+                                Math.abs(candidateData.data[i+2] - m.patch.data[i+2]);
+                    }
+                    if (diff < minDiff) { 
+                        minDiff = diff; 
+                        bestX = x + m.patchSize / 2; 
+                        bestY = y + m.patchSize / 2; 
+                    }
+                } catch (e) {}
             }
-
-            // APPLICAZIONE MOMENTUM / INERZIA: Evita sobbalzi e stabilisce un movimento fluido
-            const measuredVx = bestX - item.rawX;
-            const measuredVy = bestY - item.rawY;
-            
-            // Filtro di smoothing (40% velocità precedente + 60% nuova misurazione)
-            item.vx = (item.vx * 0.4) + (measuredVx * 0.6);
-            item.vy = (item.vy * 0.4) + (measuredVy * 0.6);
-
-            item.rawX = bestX;
-            item.rawY = bestY;
-            item.x = bestX;
-            item.y = bestY;
-
-            if (!item.historyRawX) item.historyRawX = [];
-            if (!item.historyRawY) item.historyRawY = [];
-            if (!item.historyTime) item.historyTime = [];
-
-            item.historyRawX.push(bestX);
-            item.historyRawY.push(bestY);
-            item.historyTime.push(mainVideo.currentTime);
         }
-    });
+        
+        // SMORZAMENTO VELOCITÀ: Fattore moltiplicativo stabile ereditato dal codice funzionante
+        m.vx = (bestX - m.rawX) * (m.label === 'F' ? 0.9 : 0.6); 
+        m.vy = (bestY - m.rawY) * (m.label === 'F' ? 0.9 : 0.6);
+        m.rawX = bestX; 
+        m.rawY = bestY; 
+        m.x = bestX; 
+        m.y = bestY;
+        
+        if (!m.historyRawX) m.historyRawX = []; 
+        if (!m.historyRawY) m.historyRawY = []; 
+        if (!m.historyTime) m.historyTime = [];
+        
+        m.historyRawX.push(bestX);
+        m.historyRawY.push(bestY);
+        m.historyTime.push(bioVideo.currentTime);
+    };
 
-    redrawCanvas();
+    if (markers.length > 0 || angleMarkers.length > 0) {
+        markers.forEach(trackItem); 
+        angleMarkers.forEach(trackItem); 
+        drawMarkers();
+        
+        const effectiveSec = Math.max(0, Math.round(bioVideo.currentTime + (parseInt(videoOffsetInput.value) || 0) - (parseInt(gpxOffsetInput.value) || 0)));
+        const timeLabel = effectiveSec + "s";
+        const currentValuesX = markers.map(m => Math.round(m.x)); 
+        const currentValuesY = markers.map(m => Math.round(m.y)); 
+        const currentValuesZ = markers.map(m => Math.round(Math.hypot(m.vx || 0, m.vy || 0) * 10));
+        let currentAngle = angleMarkers.length === 2 ? calculateAngle(angleMarkers[0], angleMarkers[1]) : null;
+        
+        updateLiveCharts(timeLabel, currentValuesX, currentValuesY, currentValuesZ, currentAngle); 
+        saveBioDataToMemory();
+    }
+    
+    refreshAllChartsSync(); 
     trackingInterval = requestAnimationFrame(trackMarkers);
 }
 
